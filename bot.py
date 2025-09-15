@@ -101,7 +101,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     now = datetime.datetime.now(TZ)
-    lines = [f"Date: {now.strftime('%d-%m-%Y')} (SGT)"]
+    lines = [f"Date: {now.strftime('%d-%m-%Y')} (SGT)\n"]
 
     for pid, p in group.players.items():
         # not linked
@@ -126,7 +126,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # append result
         lines.append(f"• {p.lc_user}: {status_icon}{extra}")
-    lines.append(f"Current streak: {group.streak} 🔥")
+    lines.append(f"\nCurrent streak: {group.streak} 🔥")
 
     await update.message.reply_text("\n".join(lines))
 
@@ -158,13 +158,13 @@ async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         group.streak += 1
         group.today_checked = today
         set_state(chat_id, group.streak, group.today_checked)
-        lines.append(f"Streak updated: {prev_streak} → {group.streak}")
+        lines.append(f"\nStreak updated: {prev_streak} → {group.streak}")
     elif group.today_checked == today:
-        lines.append("Streak already updated for today.")
+        lines.append("\nStreak already updated for today.")
     else:
-        lines.append("Streak not updated.")
+        lines.append("\nStreak not updated.")
 
-    await update.message.reply_text("\n".join(lines) + f"\nAll done: {all_completed}")
+    await update.message.reply_text(f"All done: {all_completed}\n\n" + "\n".join(lines))
 
 
 def main():
