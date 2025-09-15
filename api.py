@@ -66,3 +66,20 @@ def solved_today(username: str, now: datetime.datetime) -> Tuple[bool, List[str]
         pass
 
     return False, []
+
+
+def get_question(title_slug: str) -> dict:
+    """
+    Fetch the full question object from the API.
+
+    Args:
+        title_slug (str): The title slug of the question.
+
+    Returns:
+        dict: The full question object containing details like difficulty, title, etc.
+    """
+    api_url = f"{API_BASE}/select?titleSlug={title_slug}"
+    response = requests.get(api_url)
+    response.raise_for_status()  # Raise an error for bad HTTP responses
+
+    return response.json()

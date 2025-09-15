@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from api import solved_today
+from api import solved_today, get_question
 from db import init_db, get_state, set_state
 from db import get_players, upsert_player
 from classes.player import Player
@@ -48,13 +48,19 @@ def get_group_state(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> GroupSt
     return context.bot_data[key]
 
 
+def get_difficulty_icon(difficulty: str) -> str:
+    """Map difficulty string to corresponding emoji icon."""
+    mapping = {"Easy": "🟢", "Medium": "🟡", "Hard": "🔴"}
+    return mapping.get(difficulty, "❓")
+
+
 # 1. start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Hi! Group usage:\n\n"
         "• Add me to a group.\n"
         "• Everyone runs /link <leetcode_username>.\n\n"
-        "Team streak requires all linked users to submit an accepted submission daily.\n"
+        "Team streak requires all linked users to submit an accepted submission daily.\n\n"
         "Other Commands: /status, /streak, /check_now.\n"
         "Daily tally happens at 23:59 SGT or when all members have completed the requirements for the day, whichever comes first."
     )
@@ -106,27 +112,26 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # linked, check if solved today
         solved, titles = solved_today(p.lc_user, now)
 
+        # fetch full question details for each title
+        detailed_titles = []
+        for title in titles:
+            question = get_question(title)
+            difficulty_icon = get_difficulty_icon(question.get("difficulty"))
+            detailed_titles.append(f"{title} ({difficulty_icon})")
+
         # determine icon status
         status_icon = "✅" if solved else "❌"
         # join titles with commas if multiple
-        extra = f" — {', '.join(titles)}" if titles else ""
+        extra = f" — {', '.join(detailed_titles)}" if detailed_titles else ""
 
         # append result
         lines.append(f"• {p.lc_user}: {status_icon}{extra}")
-    lines.append(f"Current streak: {group.streak}")
+    lines.append(f"Current streak: {group.streak} 🔥")
 
     await update.message.reply_text("\n".join(lines))
 
 
-# 4. get streak count
-async def streak_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    group = get_group_state(context, chat_id)
-
-    await update.message.reply_text(f"🔥 Streak: {group.streak}")
-
-
-# 5. manual streak check/update
+# 4. manual streak check/update
 async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     group = get_group_state(context, chat_id)
@@ -136,6 +141,7 @@ async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     now = datetime.datetime.now(TZ)
+    today = now.strftime("%d-%m-%Y")
     lines = []
 
     all_completed = True
@@ -147,10 +153,14 @@ async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{p.lc_user}: {status_icon} {', '.join(titles) if titles else ''}"
         )
 
-    if all_completed:
+    if all_completed and group.today_checked != today:
+        prev_streak = group.streak
         group.streak += 1
+        group.today_checked = today
         set_state(chat_id, group.streak, group.today_checked)
-        lines.append(f"🔥 Streak updated: {group.streak}")
+        lines.append(f"Streak updated: {prev_streak} → {group.streak}")
+    elif group.today_checked == today:
+        lines.append("Streak already updated for today.")
     else:
         lines.append("Streak not updated.")
 
@@ -164,7 +174,6 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("link", link_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
-    app.add_handler(CommandHandler("streak", streak_cmd))
     app.add_handler(CommandHandler("check_now", check_now_cmd))
 
     print("Polling...")
