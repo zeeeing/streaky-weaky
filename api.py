@@ -1,5 +1,5 @@
 import os, datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, TypedDict
 import requests
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
@@ -16,19 +16,24 @@ else:
     API_BASE = os.getenv("API_BASE_DEV")
 
 
-def fetch_ac_submissions(username: str, limit: int = 30) -> List[dict]:
-    """Return recent accepted submissions from the alfa API."""
+class ACSubmissionsResponse(TypedDict):
+    """Returns a specified number of the user's last accepted submission.
+
+    JSON object with fields:
+    - count: integer count of submissions returned
+    - submission: list of JSON objects with string-valued fields
+    """
+
+    count: int
+    submission: List[Dict[str, str]]
+
+
+def fetch_ac_submissions(username: str, limit: int = 20) -> ACSubmissionsResponse:
+    """Return a JSON object with `count` and `submission` fields.
+    `submission` is a list of JSON objects whose fields are strings.
+    Default limit set to 20.
+    """
     url = f"{API_BASE}/{username}/acSubmission?limit={limit}"
-    r = requests.get(url, timeout=15)
-    r.raise_for_status()
-    data = r.json()
-    # The API returns a list of submissions with timestamps (Unix seconds)
-    return data
-
-
-def fetch_calendar(username: str) -> Dict[str, int]:
-    """Return submission calendar mapping 'utc_midnight_epoch' -> count."""
-    url = f"{API_BASE}/{username}/calendar"
     r = requests.get(url, timeout=15)
     r.raise_for_status()
     return r.json()
@@ -47,8 +52,9 @@ def solved_today(username: str, now: datetime.datetime) -> Tuple[bool, List[str]
 
     titles = []
     try:
-        subs = fetch_ac_submissions(username, limit=30)
-        for s in subs or []:
+        resp = fetch_ac_submissions(username)
+        subs = resp.get("submission", [])
+        for s in subs:
             ts = int(s.get("timestamp", 0))
             if day_start <= ts <= day_end:
                 t = s.get("title") or s.get("titleSlug") or "unknown"
@@ -57,21 +63,6 @@ def solved_today(username: str, now: datetime.datetime) -> Tuple[bool, List[str]
             return True, titles
     except Exception:
         # fall through to calendar check
-        pass
-
-    # Calendar fallback
-    try:
-        cal = fetch_calendar(username) or {}
-        # calendar keys are UTC midnight. Compute today's SGT midnight in UTC.
-        sgt_midnight = datetime.datetime(now.year, now.month, now.day, tzinfo=TZ)
-        utc_midnight = int(
-            sgt_midnight.astimezone(datetime.timezone.utc)
-            .replace(hour=0, minute=0, second=0, microsecond=0)
-            .timestamp()
-        )
-        if str(utc_midnight) in cal and int(cal[str(utc_midnight)]) > 0:
-            return True, ["via calendar"]
-    except Exception:
         pass
 
     return False, []

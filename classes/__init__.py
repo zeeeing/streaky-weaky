@@ -1,5 +1,4 @@
 from .player import Player
-from .pair_state import PairState
+from .group_state import GroupState
 
-__all__ = ["Player", "PairState"]
-
+__all__ = ["Player", "GroupState"]

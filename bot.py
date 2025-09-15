@@ -1,14 +1,15 @@
 import os, datetime
-from typing import Dict
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, PicklePersistence
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-from api import fetch_ac_submissions, fetch_calendar, solved_today
+from api import solved_today
+from db import init_db, get_state, set_state
+from db import get_players, upsert_player
 from classes.player import Player
-from classes.pair_state import PairState
+from classes.group_state import GroupState
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -22,167 +23,148 @@ else:
     API_BASE = os.getenv("API_BASE_DEV")
 
 
-# ---------- Bot command handlers ----------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Hi. Add me to a group with both players.\n"
-        "Each player runs /link <leetcode_username>\n"
-        "Use /status any time. Streak tallies at 23:59 SGT daily."
-    )
+# helpers
+def get_group_state(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> GroupState:
+    key = f"group:{chat_id}"
 
-
-def get_pair_state(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> PairState:
-    key = f"pair:{chat_id}"
+    # load from db if not in memory
     if key not in context.bot_data:
-        context.bot_data[key] = PairState()
+        group = GroupState()
+
+        # load streak state from db
+        streak, today_checked = get_state(chat_id)
+        group.streak = streak
+        group.today_checked = today_checked
+
+        # load players from db
+        for row in get_players(chat_id):
+            group.players[int(row["tele_id"])] = Player(
+                tele_id=int(row["tele_id"]), lc_user=row["lc_user"]
+            )
+
+        # cache in bot_data
+        context.bot_data[key] = group
+
     return context.bot_data[key]
 
 
+# 1. start command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Hi! Group usage:\n\n"
+        "• Add me to a group.\n"
+        "• Everyone runs /link <leetcode_username>.\n\n"
+        "Team streak requires all linked users to submit an accepted submission daily.\n"
+        "Other Commands: /status, /streak, /check_now.\n"
+        "Daily tally happens at 23:59 SGT or when all members have completed the requirements for the day, whichever comes first."
+    )
+
+
+# 2. link command
 async def link_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     args = context.args
-    if not args:
+
+    if not args or len(args) != 1:
         await update.message.reply_text("Usage: /link <leetcode_username>")
         return
 
-    lc = args[0]
-    pair = get_pair_state(context, chat_id)
-    pair.players[user_id] = Player(tg_id=user_id, lc_user=lc)
+    lc_user = args[0]
+    group = get_group_state(context, chat_id)
+
+    # persist to db and update memory
+    upsert_player(chat_id, user_id, lc_user)
+    group.players[user_id] = Player(tele_id=user_id, lc_user=lc_user)
+
     await update.message.reply_text(
-        f"Linked @{update.effective_user.username or user_id} to {lc}.\n"
-        f"When both of you have linked, run /status to test."
+        f"Linked @{update.effective_user.username or user_id} to {lc_user}.\n"
+        f"When everyone has linked, run /status to check."
     )
 
 
+# 3. get current status of players in streak
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    pair = get_pair_state(context, chat_id)
+    group = get_group_state(context, chat_id)
 
-    if len(pair.players) < 2:
+    if len(group.players) < 2:
         await update.message.reply_text(
-            "Need two players. Each runs /link <leetcode_username>."
+            "Need at least two linked players. Run using /link <leetcode_username>."
         )
         return
 
     now = datetime.datetime.now(TZ)
-    lines = [f"Date: {now.strftime('%Y-%m-%d')} (SGT)"]
-    all_ok = True
-    for pid, p in pair.players.items():
+    lines = [f"Date: {now.strftime('%d-%m-%Y')} (SGT)"]
+
+    for pid, p in group.players.items():
+        # not linked
         if not p.lc_user:
             lines.append(f"• {pid}: not linked")
-            all_ok = False
             continue
-        ok, titles = solved_today(p.lc_user, now)
-        tick = "✅" if ok else "❌"
-        extra = f" — {', '.join(titles)}" if titles else ""
-        lines.append(f"• {p.lc_user}: {tick}{extra}")
-        all_ok = all_ok and ok
 
-    lines.append(f"Current streak: {pair.streak}")
+        # linked, check if solved today
+        solved, titles = solved_today(p.lc_user, now)
+
+        # determine icon status
+        status_icon = "✅" if solved else "❌"
+        # join titles with commas if multiple
+        extra = f" — {', '.join(titles)}" if titles else ""
+
+        # append result
+        lines.append(f"• {p.lc_user}: {status_icon}{extra}")
+    lines.append(f"Current streak: {group.streak}")
+
     await update.message.reply_text("\n".join(lines))
 
 
+# 4. get streak count
 async def streak_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    pair = get_pair_state(context, chat_id)
-    await update.message.reply_text(f"Streak: {pair.streak}")
+    group = get_group_state(context, chat_id)
+
+    await update.message.reply_text(f"Streak: {group.streak}")
 
 
-# The daily close-out job: at 23:59 SGT, check both players and update streak
-async def close_out_day(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    chat_id = job.chat_id
-    pair = get_pair_state(context, chat_id)
-    now = datetime.datetime.now(TZ)
-    today = now.strftime("%Y-%m-%d")
-    if len(pair.players) < 2:
-        return
-
-    if pair.today_checked == today:
-        return  # already processed
-
-    missing = []
-    details = []
-    for _, p in pair.players.items():
-        ok, titles = solved_today(p.lc_user, now)
-        if not ok:
-            missing.append(p.lc_user)
-        details.append((p.lc_user, ok, titles))
-
-    if missing:
-        pair.streak = 0
-        pair.today_checked = today
-        msg = "Streak ended. Missed today: " + ", ".join(missing)
-        # Include a small detail line
-        for name, ok, titles in details:
-            mark = "✅" if ok else "❌"
-            msg += f"\n• {name}: {mark} {', '.join(titles) if titles else ''}"
-        await context.bot.send_message(chat_id=chat_id, text=msg)
-    else:
-        pair.streak += 1
-        pair.today_checked = today
-        ok_list = ", ".join(
-            f"{name} ({', '.join(titles) if titles else 'ok'})"
-            for name, ok, titles in details
-        )
-        await context.bot.send_message(
-            chat_id=chat_id, text=f"Day complete. Streak = {pair.streak}\n{ok_list}"
-        )
-
-
-async def enable_daily_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Attach a daily job to this chat at 23:59 SGT."""
-    chat_id = update.effective_chat.id
-    pair = get_pair_state(context, chat_id)
-    if len(pair.players) < 2:
-        await update.message.reply_text("Link both players first using /link.")
-        return
-
-    # Remove existing jobs for this chat
-    for j in context.job_queue.get_jobs_by_name(f"closeout-{chat_id}"):
-        j.schedule_removal()
-
-    # Schedule at 23:59:00 SGT daily
-    run_time = datetime.time(23, 59, 0, tzinfo=TZ)
-    context.job_queue.run_daily(
-        close_out_day, time=run_time, chat_id=chat_id, name=f"closeout-{chat_id}"
-    )
-    await update.message.reply_text(
-        "Daily check scheduled at 23:59 SGT. Use /status to see live state."
-    )
-
-
+# 5. manual streak check/update
 async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manual check now."""
     chat_id = update.effective_chat.id
-    pair = get_pair_state(context, chat_id)
-    if len(pair.players) < 2:
-        await update.message.reply_text(
-            "Need two players. Each runs /link <leetcode_username>."
-        )
+    group = get_group_state(context, chat_id)
+
+    if len(group.players) < 2:
+        await update.message.reply_text("Need at least two linked players. Use /link.")
         return
+
     now = datetime.datetime.now(TZ)
     lines = []
-    ok_both = True
-    for _, p in pair.players.items():
-        ok, titles = solved_today(p.lc_user, now)
-        tick = "✅" if ok else "❌"
-        ok_both = ok_both and ok
-        lines.append(f"{p.lc_user}: {tick} {', '.join(titles) if titles else ''}")
-    await update.message.reply_text("\n".join(lines) + f"\nBoth done: {ok_both}")
+
+    all_completed = True
+    for _, p in group.players.items():
+        solved, titles = solved_today(p.lc_user, now)
+        status_icon = "✅" if solved else "❌"
+        all_completed = all_completed and solved
+        lines.append(
+            f"{p.lc_user}: {status_icon} {', '.join(titles) if titles else ''}"
+        )
+
+    if all_completed:
+        group.streak += 1
+        set_state(chat_id, group.streak, group.today_checked)
+        lines.append(f"Streak updated: {group.streak}")
+    else:
+        lines.append("Streak not updated.")
+
+    await update.message.reply_text("\n".join(lines) + f"\nAll done: {all_completed}")
 
 
 def main():
-    # simple persistent storage, per chat
-    persistence = PicklePersistence(filepath="streak_data.pkl")
-    app = Application.builder().token(BOT_TOKEN).persistence(persistence).build()
+    init_db()
+    app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("link", link_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("streak", streak_cmd))
-    app.add_handler(CommandHandler("enable_daily", enable_daily_cmd))
     app.add_handler(CommandHandler("check_now", check_now_cmd))
 
     print("Polling...")

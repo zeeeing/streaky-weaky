@@ -3,6 +3,5 @@ from dataclasses import dataclass
 
 @dataclass
 class Player:
-    tg_id: int
+    tele_id: int
     lc_user: str = ""
-
