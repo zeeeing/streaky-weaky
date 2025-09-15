@@ -123,7 +123,7 @@ async def streak_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     group = get_group_state(context, chat_id)
 
-    await update.message.reply_text(f"Streak: {group.streak}")
+    await update.message.reply_text(f"🔥 Streak: {group.streak}")
 
 
 # 5. manual streak check/update
@@ -150,7 +150,7 @@ async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if all_completed:
         group.streak += 1
         set_state(chat_id, group.streak, group.today_checked)
-        lines.append(f"Streak updated: {group.streak}")
+        lines.append(f"🔥 Streak updated: {group.streak}")
     else:
         lines.append("Streak not updated.")
 
