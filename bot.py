@@ -82,14 +82,17 @@ def perform_streak_check(
 
 # 1. start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Hi! Group usage:\n\n"
-        "• Add me to a group.\n"
-        "• Everyone runs /link <leetcode_username>.\n\n"
-        "Team streak requires all linked users to submit an accepted submission daily.\n\n"
-        "Other Commands: /status, /check_now.\n"
-        "Daily tally happens at 23:59 SGT or when all members have completed the requirements for the day, whichever comes first."
+    text = (
+        "Hi there! Looking to keep your LeetCode practices in rhythm? Well, you've come to the right place!\n\n"
+        "Private chat usage: <i>NOT CURRENTLY SUPPORTED</i>\n\n"
+        "<b>Group chat usage:</b>\n"
+        "1. Add me to a group.\n"
+        "2. Everyone runs <code>/link &lt;leetcode_username&gt;</code> to link their leetcode username to their telegram account.\n"
+        "3. Run <code>/status</code> or <code>/check_now</code> to keep update to date with the team's progress daily!\n\n"
+        "• To prevent a streak from dying, every linked user is required to submit at least 1 accepted submission daily.\n"
+        "• Daily tally happens at 23:59 SGT or when all members have completed the requirements for the day, whichever comes first."
     )
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 # 2. link command
