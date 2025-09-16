@@ -54,6 +54,32 @@ def get_difficulty_icon(difficulty: str) -> str:
     return mapping.get(difficulty, "❓")
 
 
+def perform_streak_check(
+    group: GroupState, now: datetime.datetime, today: str
+) -> tuple[bool, list[str]]:
+    lines = [f"Date: {now.strftime('%d-%m-%Y')} (SGT)\n"]
+    all_completed = True
+
+    for _, p in group.players.items():
+        solved, titles = solved_today(p.lc_user, now)
+        status_icon = "✅" if solved else "❌"
+        all_completed = all_completed and solved
+        detailed_titles = ", ".join(titles) if titles else ""
+        lines.append(f"• {p.lc_user}: {status_icon} {detailed_titles}")
+
+    if all_completed and group.today_checked != today:
+        prev_streak = group.streak
+        group.streak += 1
+        group.today_checked = today
+        lines.append(f"\nStreak updated: {prev_streak} → {group.streak} 🔥")
+    elif group.today_checked == today:
+        lines.append("\nStreak already updated for today.")
+    else:
+        lines.append("\nStreak not updated. Keep going! 💪")
+
+    return all_completed, lines
+
+
 # 1. start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -103,31 +129,24 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.datetime.now(TZ)
     lines = [f"Date: {now.strftime('%d-%m-%Y')} (SGT)\n"]
 
-    for pid, p in group.players.items():
-        # not linked
+    for _, p in group.players.items():
         if not p.lc_user:
-            lines.append(f"• {pid}: not linked")
+            lines.append(f"• {p.tele_id}: not linked")
             continue
 
-        # linked, check if solved today
         solved, titles = solved_today(p.lc_user, now)
+        status_icon = "✅" if solved else "❌"
 
-        # fetch full question details for each title
         detailed_titles = []
         for title in titles:
             question = get_question(title)
             difficulty_icon = get_difficulty_icon(question.get("difficulty"))
             detailed_titles.append(f"{title} ({difficulty_icon})")
 
-        # determine icon status
-        status_icon = "✅" if solved else "❌"
-        # join titles with commas if multiple
         extra = f" — {', '.join(detailed_titles)}" if detailed_titles else ""
-
-        # append result
         lines.append(f"• {p.lc_user}: {status_icon}{extra}")
-    lines.append(f"\nCurrent streak: {group.streak} 🔥")
 
+    lines.append(f"\nCurrent streak: {group.streak} 🔥")
     await update.message.reply_text("\n".join(lines))
 
 
@@ -142,39 +161,41 @@ async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     now = datetime.datetime.now(TZ)
     today = now.strftime("%d-%m-%Y")
-    lines = []
 
-    all_completed = True
-    for _, p in group.players.items():
-        solved, titles = solved_today(p.lc_user, now)
-        status_icon = "✅" if solved else "❌"
-        all_completed = all_completed and solved
-        lines.append(
-            f"{p.lc_user}: {status_icon} {', '.join(titles) if titles else ''}"
-        )
+    _, lines = perform_streak_check(group, now, today)
+    set_state(chat_id, group.streak, group.today_checked)
 
-    if all_completed and group.today_checked != today:
-        prev_streak = group.streak
-        group.streak += 1
-        group.today_checked = today
+    await update.message.reply_text("\n".join(lines))
+
+
+# job queue handlers
+async def check_streaks(context: ContextTypes.DEFAULT_TYPE):
+    now = datetime.datetime.now(TZ)
+    today = now.strftime("%d-%m-%Y")
+
+    for chat_id_str, group in context.bot_data.items():
+        if not isinstance(group, GroupState):
+            continue
+
+        chat_id = int(chat_id_str.split(":")[1])
+
+        _, lines = perform_streak_check(group, now, today)
         set_state(chat_id, group.streak, group.today_checked)
-        lines.append(f"\nStreak updated: {prev_streak} → {group.streak}")
-    elif group.today_checked == today:
-        lines.append("\nStreak already updated for today.")
-    else:
-        lines.append("\nStreak not updated.")
 
-    await update.message.reply_text(f"All done: {all_completed}\n\n" + "\n".join(lines))
+        await context.bot.send_message(chat_id=chat_id, text="\n".join(lines))
 
 
 def main():
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
+    job_queue = app.job_queue
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("link", link_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("check_now", check_now_cmd))
+
+    job_queue.run_daily(check_streaks, time=datetime.time(23, 59, tzinfo=TZ))
 
     print("Polling...")
     app.run_polling()
