@@ -138,16 +138,19 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_icon = "✅" if solved else "❌"
 
         detailed_titles = []
-        for title in titles:
-            question = get_question(title)
+        for title_slug in titles:
+            question = get_question(title_slug)
             difficulty_icon = get_difficulty_icon(question.get("difficulty"))
-            detailed_titles.append(f"{title} ({difficulty_icon})")
 
+            # create md link to the lc qn
+            url = question.get("link", f"https://leetcode.com/problems/{title_slug}/")
+            title = question.get("title", title_slug)
+            detailed_titles.append(f"[{title}]({url}) {difficulty_icon}")
         extra = f" — {', '.join(detailed_titles)}" if detailed_titles else ""
         lines.append(f"• {p.lc_user}: {status_icon}{extra}")
-
     lines.append(f"\nCurrent streak: {group.streak} 🔥")
-    await update.message.reply_text("\n".join(lines))
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 # 4. manual streak check/update
