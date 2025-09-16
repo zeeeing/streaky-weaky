@@ -195,7 +195,10 @@ def main():
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("check_now", check_now_cmd))
 
+    # check streak daily at EOD
     job_queue.run_daily(check_streaks, time=datetime.time(23, 59, tzinfo=TZ))
+    # check daily status
+    job_queue.run_daily(status_cmd, time=datetime.time(8, 0, tzinfo=TZ))
 
     print("Polling...")
     app.run_polling()
