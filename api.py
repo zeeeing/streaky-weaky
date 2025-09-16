@@ -57,7 +57,7 @@ def solved_today(username: str, now: datetime.datetime) -> Tuple[bool, List[str]
         for s in subs:
             ts = int(s.get("timestamp", 0))
             if day_start <= ts <= day_end:
-                t = s.get("title") or s.get("titleSlug") or "unknown"
+                t = s.get("titleSlug")
                 titles.append(t)
         if titles:
             return True, titles

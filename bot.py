@@ -134,17 +134,17 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"• {p.tele_id}: not linked")
             continue
 
-        solved, titles = solved_today(p.lc_user, now)
+        solved, title_slugs = solved_today(p.lc_user, now)
         status_icon = "✅" if solved else "❌"
 
         detailed_titles = []
-        for title_slug in titles:
+        for title_slug in title_slugs:
             question = get_question(title_slug)
             difficulty_icon = get_difficulty_icon(question.get("difficulty"))
 
             # create md link to the lc qn
             url = question.get("link", f"https://leetcode.com/problems/{title_slug}/")
-            title = question.get("title", title_slug)
+            title = question.get("questionTitle", title_slug)
             detailed_titles.append(f"[{title}]({url}) {difficulty_icon}")
         extra = f" — {', '.join(detailed_titles)}" if detailed_titles else ""
         lines.append(f"• {p.lc_user}: {status_icon}{extra}")
