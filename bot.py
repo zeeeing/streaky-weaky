@@ -61,7 +61,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Add me to a group.\n"
         "• Everyone runs /link <leetcode_username>.\n\n"
         "Team streak requires all linked users to submit an accepted submission daily.\n\n"
-        "Other Commands: /status, /streak, /check_now.\n"
+        "Other Commands: /status, /check_now.\n"
         "Daily tally happens at 23:59 SGT or when all members have completed the requirements for the day, whichever comes first."
     )
 
