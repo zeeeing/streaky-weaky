@@ -185,7 +185,15 @@ async def check_streaks(context: ContextTypes.DEFAULT_TYPE):
 
         chat_id = int(chat_id_str.split(":")[1])
 
-        _, lines = perform_streak_check(group, now, today)
+        all_completed, lines = perform_streak_check(group, now, today)
+
+        # break streak
+        if not all_completed:
+            lines.append(
+                "\nNot all players have completed today's challenge. The streak has been reset to 0. Try again tomorrow! 😔"
+            )
+            group.streak = 0
+
         set_state(chat_id, group.streak, group.today_checked)
 
         await context.bot.send_message(chat_id=chat_id, text="\n".join(lines))
