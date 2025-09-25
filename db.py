@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 
 DB_PATH = os.getenv("/", "streak_dev.db")
 
@@ -28,6 +28,14 @@ def init_db() -> None:
                 tele_id INTEGER NOT NULL,
                 lc_user TEXT NOT NULL,
                 PRIMARY KEY (chat_id, tele_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS groups (
+                chat_id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL
             )
             """
         )
@@ -99,3 +107,29 @@ def get_all_chat_ids() -> List[int]:
         )
         rows = cur.fetchall()
     return [int(row[0]) for row in rows]
+
+
+def get_group_name(chat_id: int) -> Optional[str]:
+    """Return the custom group name if set, else None."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "SELECT name FROM groups WHERE chat_id = ?",
+            (chat_id,),
+        )
+        row = cur.fetchone()
+        return str(row[0]) if row and row[0] is not None else None
+
+
+def set_group_name(chat_id: int, name: str) -> None:
+    """Upsert the custom group name for a chat."""
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO groups (chat_id, name)
+            VALUES (?, ?)
+            ON CONFLICT(chat_id) DO UPDATE SET
+                name = excluded.name
+            """,
+            (chat_id, name),
+        )
+        conn.commit()

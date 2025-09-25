@@ -10,3 +10,4 @@ class GroupState:
     last_day: str = ""  # "YYYY-MM-DD" that was last finalized
     # cache today’s check to avoid re-spam
     today_checked: str = ""  # "YYYY-MM-DD"
+    name: str = ""

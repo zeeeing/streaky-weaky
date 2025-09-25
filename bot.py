@@ -8,7 +8,13 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from api import solved_today, get_question
 from db import init_db, get_state, set_state
-from db import get_players, upsert_player, get_all_chat_ids
+from db import (
+    get_players,
+    upsert_player,
+    get_all_chat_ids,
+    get_group_name,
+    set_group_name,
+)
 from classes.player import Player
 from classes.group_state import GroupState
 
@@ -45,6 +51,10 @@ def get_group_state(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> GroupSt
             group.players[int(row["tele_id"])] = Player(
                 tele_id=int(row["tele_id"]), lc_user=row["lc_user"]
             )
+
+        # load custom group name if any
+        name = get_group_name(chat_id)
+        group.name = name or ""
 
         # cache in bot_data
         context.bot_data[key] = group
@@ -120,7 +130,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>Group chat usage:</b>\n"
         "1. Add me to a group.\n"
         "2. Everyone runs <code>/link &lt;leetcode_username&gt;</code> to link their leetcode username to their telegram account.\n"
-        "3. Run <code>/status</code> or <code>/check_now</code> to keep update to date with the team's progress daily!\n\n"
+        "3. Run <code>/status</code> or <code>/check_now</code> to keep update to date with the team's progress daily!\n"
+        "4. Optionally set a custom group name with <code>/setgroupname &lt;your name&gt;</code>.\n\n"
         "• To prevent a streak from dying, every linked user is required to submit at least 1 accepted submission daily.\n"
         "• Daily tally happens at 23:59 SGT or when all members have completed the requirements for the day, whichever comes first."
     )
@@ -198,6 +209,67 @@ async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
+# 5. leaderboard command
+async def leaderboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    groups: list[tuple[str, int, int]] = []  # (display_name, streak, members)
+    for cid in get_all_chat_ids():
+        group = get_group_state(context, cid)
+
+        if len(group.players) < 2:
+            continue
+
+        streak, _ = get_state(cid)
+        display_name = (
+            group.name.strip()
+            if getattr(group, "name", "")
+            else f"{update.effective_chat.title}"
+        )
+        groups.append((display_name, streak, len(group.players)))
+
+    # Sort groups by streak desc, then name asc for stability
+    groups.sort(key=lambda x: (-x[1], x[0].lower()))
+
+    if not groups:
+        await update.message.reply_text(
+            "No eligible groups yet. Link at least two players to appear."
+        )
+        return
+
+    lines = ["🏆 Group Leaderboard 🏆\n"]
+    for rank, (name, streak, members) in enumerate(groups, start=1):
+        lines.append(f"{rank}. {name}: {streak} 🔥 ({members} members)")
+
+    await update.message.reply_text("\n".join(lines))
+
+
+# 6. set custom group name for leaderboard
+async def set_group_name_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    chat_id = chat.id
+
+    # Only sensible in group chats
+    if chat.type not in ("group", "supergroup"):
+        await update.message.reply_text("This command can only be used in group chats.")
+        return
+
+    # Require a non-empty name
+    if not context.args:
+        await update.message.reply_text("Usage: /setgroupname <custom group name>")
+        return
+
+    name = " ".join(context.args).strip()
+    if not name:
+        await update.message.reply_text("Group name cannot be empty.")
+        return
+
+    # persist and update cache
+    set_group_name(chat_id, name)
+    group = get_group_state(context, chat_id)
+    group.name = name
+
+    await update.message.reply_text(f"Group name set to: {name}")
+
+
 # job queue handlers
 async def daily_status_update(context: ContextTypes.DEFAULT_TYPE):
     """
@@ -245,7 +317,7 @@ async def check_streaks(context: ContextTypes.DEFAULT_TYPE):
         # break streak
         if not all_completed:
             lines.append(
-                "\nNot all players have completed today's challenge. The streak has been reset to 0. Try again tomorrow! 😔"
+                "\nNot all players have completed today's challenge. The streak has been resetted to 0. Try again tomorrow! 😔"
             )
             group.streak = 0
 
@@ -269,6 +341,8 @@ def main():
     app.add_handler(CommandHandler("link", link_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("check_now", check_now_cmd))
+    app.add_handler(CommandHandler("leaderboard", leaderboard_cmd))
+    app.add_handler(CommandHandler("set_group_name", set_group_name_cmd))
 
     # check streak daily at EOD
     job_queue.run_daily(check_streaks, time=datetime.time(23, 59, tzinfo=TZ))
