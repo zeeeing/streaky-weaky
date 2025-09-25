@@ -34,7 +34,8 @@ Notes
 ## Quick Start
 
 ### Using the Deployed Bot (User Guide)
-1. Open Telegram and search for the bot: `@YourBotHandle` (replace with the actual handle).
+
+1. Open Telegram and search for the bot: `@StreakyWeakyBot`.
 2. Tap the bot and press Start to view commands.
 3. Add the bot to your group chat.
 4. In the group, each member links their LeetCode account:
@@ -49,10 +50,12 @@ Notes
    - Streak finalized at 23:59 (resets to 0 if anyone hasn’t completed)
 
 Notes for users
+
 - Works in group chats; private chat usage isn’t supported.
 - Requires at least two linked members to track a streak.
 
 ### Local Hosting (Developer Guide)
+
 1. Prerequisites: Python 3.10+ and `pip`.
 2. Install dependencies:
    ```bash
