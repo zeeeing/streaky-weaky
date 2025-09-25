@@ -1,4 +1,5 @@
 import os, datetime
+import logging
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
@@ -7,7 +8,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from api import solved_today, get_question
 from db import init_db, get_state, set_state
-from db import get_players, upsert_player
+from db import get_players, upsert_player, get_all_chat_ids
 from classes.player import Player
 from classes.group_state import GroupState
 
@@ -21,6 +22,9 @@ if NODE_ENV == "production":
     API_BASE = os.getenv("API_BASE_PROD")
 else:
     API_BASE = os.getenv("API_BASE_DEV")
+
+# module logger
+LOGGER = logging.getLogger(__name__)
 
 
 # helpers
@@ -73,11 +77,39 @@ def perform_streak_check(
         group.today_checked = today
         lines.append(f"\nStreak updated: {prev_streak} → {group.streak} 🔥")
     elif group.today_checked == today:
-        lines.append("\nStreak already updated for today.")
+        lines.append("\nStreak already updated for today. Nice work! 🎉")
     else:
-        lines.append("\nStreak not updated. Keep going! 💪")
+        lines.append(
+            "\nNot all players have completed their daily LeetCode question. Keep going! 💪"
+        )
 
     return all_completed, lines
+
+
+def build_question_links(title_slugs: list[str]) -> list[str]:
+    """
+    Return markdown-formatted question links with fallbacks.
+    """
+    details: list[str] = []
+    for title_slug in title_slugs:
+        url = f"https://leetcode.com/problems/{title_slug}/"
+        title = title_slug.replace("-", " ").title()
+        difficulty_icon = get_difficulty_icon(None)
+
+        try:
+            question = get_question(title_slug)
+        except Exception as exc:
+            LOGGER.warning("Failed to fetch question %s: %s", title_slug, exc)
+            question = None
+
+        if question:
+            url = question.get("link", url)
+            title = question.get("questionTitle", title)
+            difficulty_icon = get_difficulty_icon(question.get("difficulty"))
+
+        details.append(f"[{title}]({url}) {difficulty_icon}")
+
+    return details
 
 
 # 1. start command
@@ -140,15 +172,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         solved, title_slugs = solved_today(p.lc_user, now)
         status_icon = "✅" if solved else "❌"
 
-        detailed_titles = []
-        for title_slug in title_slugs:
-            question = get_question(title_slug)
-            difficulty_icon = get_difficulty_icon(question.get("difficulty"))
-
-            # create md link to the lc qn
-            url = question.get("link", f"https://leetcode.com/problems/{title_slug}/")
-            title = question.get("questionTitle", title_slug)
-            detailed_titles.append(f"[{title}]({url}) {difficulty_icon}")
+        detailed_titles = build_question_links(title_slugs)
         extra = f" — {', '.join(detailed_titles)}" if detailed_titles else ""
         lines.append(f"• {p.lc_user}: {status_icon}{extra}")
     lines.append(f"\nCurrent streak: {group.streak} 🔥")
@@ -175,15 +199,46 @@ async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # job queue handlers
+async def daily_status_update(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Send daily status update to all groups.
+    """
+    for chat_id in get_all_chat_ids():
+        group = get_group_state(context, chat_id)
+
+        if len(group.players) < 2:
+            continue
+
+        now = datetime.datetime.now(TZ)
+        lines = [f"Date: {now.strftime('%d-%m-%Y')} (SGT)\n"]
+
+        for _, p in group.players.items():
+            if not p.lc_user:
+                lines.append(f"• {p.tele_id}: not linked")
+                continue
+
+            solved, title_slugs = solved_today(p.lc_user, now)
+            status_icon = "✅" if solved else "❌"
+
+            detailed_titles = build_question_links(title_slugs)
+            extra = f" — {', '.join(detailed_titles)}" if detailed_titles else ""
+            lines.append(f"• {p.lc_user}: {status_icon}{extra}")
+        lines.append(f"\nCurrent streak: {group.streak} 🔥")
+
+        await context.bot.send_message(
+            chat_id=chat_id, text="\n".join(lines), parse_mode="Markdown"
+        )
+
+
 async def check_streaks(context: ContextTypes.DEFAULT_TYPE):
     now = datetime.datetime.now(TZ)
     today = now.strftime("%d-%m-%Y")
 
-    for chat_id_str, group in context.bot_data.items():
-        if not isinstance(group, GroupState):
-            continue
+    for chat_id in get_all_chat_ids():
+        group = get_group_state(context, chat_id)
 
-        chat_id = int(chat_id_str.split(":")[1])
+        if len(group.players) < 2:
+            continue
 
         all_completed, lines = perform_streak_check(group, now, today)
 
@@ -200,6 +255,12 @@ async def check_streaks(context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # Configure basic logging once at startup
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
     job_queue = app.job_queue
@@ -212,7 +273,7 @@ def main():
     # check streak daily at EOD
     job_queue.run_daily(check_streaks, time=datetime.time(23, 59, tzinfo=TZ))
     # check daily status
-    job_queue.run_daily(status_cmd, time=datetime.time(8, 0, tzinfo=TZ))
+    job_queue.run_daily(daily_status_update, time=datetime.time(8, 0, tzinfo=TZ))
 
     print("Polling...")
     app.run_polling()

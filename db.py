@@ -85,3 +85,17 @@ def upsert_player(chat_id: int, tele_id: int, lc_user: str) -> None:
             (chat_id, tele_id, lc_user),
         )
         conn.commit()
+
+
+def get_all_chat_ids() -> List[int]:
+    """Return chat IDs that have streak or player data."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            SELECT chat_id FROM streaks
+            UNION
+            SELECT DISTINCT chat_id FROM players
+            """
+        )
+        rows = cur.fetchall()
+    return [int(row[0]) for row in rows]
