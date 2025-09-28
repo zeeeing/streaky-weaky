@@ -66,7 +66,7 @@ Notes for users
    ```env
    BOT_TOKEN=123456:ABC-your-telegram-bot-token
    NODE_ENV=development
-   TZ=Asia/Singapore
+   TIMEZONE=Asia/Singapore
    # Base URLs for your LeetCode API service
    API_BASE_DEV=https://your-api.dev.example.com
    API_BASE_PROD=https://your-api.prod.example.com
@@ -84,7 +84,7 @@ Notes for users
 - Persistence: The bot uses a local SQLite database (`streak_dev.db` in the repo root) and initializes tables on startup.
 - In-memory cache: Group state is cached in `bot_data` and kept in sync with the DB.
 - Scheduling: The job queue posts a daily status message (08:00 SGT) and finalizes the streak at end-of-day (23:59 SGT). If any member hasn’t solved at least one problem by then, the streak resets to 0.
-- Timezone: The bot uses the `TZ` environment variable (IANA name) and defaults to `Asia/Singapore`.
+- Timezone: The bot uses the `TIMEZONE` environment variable (IANA name) and defaults to `Asia/Singapore`.
 
 ## Expected External API
 
@@ -134,7 +134,7 @@ The database file is `streak_dev.db` by default and is created automatically.
   pip install -r requirements.txt
   ```
 - Logging: set by `logging.basicConfig(level=logging.INFO)` in `bot.py`.
-- Timezone: change via `TZ` (e.g., `TZ=UTC`, `TZ=America/New_York`).
+- Timezone: change via `TIMEZONE` (e.g., `TIMEZONE=UTC`, `TIMEZONE=America/New_York`).
 
 ## Troubleshooting
 

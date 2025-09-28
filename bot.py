@@ -21,7 +21,7 @@ from classes.group_state import GroupState
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 NODE_ENV = os.getenv("NODE_ENV", "development")
-TZ = ZoneInfo(os.getenv("TZ", "Asia/Singapore"))
+TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Asia/Singapore"))
 
 # select env
 if NODE_ENV == "production":
@@ -172,7 +172,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    now = datetime.datetime.now(TZ)
+    now = datetime.datetime.now(TIMEZONE)
     lines = [f"Date: {now.strftime('%d-%m-%Y')} (SGT)\n"]
 
     for _, p in group.players.items():
@@ -200,7 +200,7 @@ async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Need at least two linked players. Use /link.")
         return
 
-    now = datetime.datetime.now(TZ)
+    now = datetime.datetime.now(TIMEZONE)
     today = now.strftime("%d-%m-%Y")
 
     _, lines = perform_streak_check(group, now, today)
@@ -281,7 +281,7 @@ async def daily_status_update(context: ContextTypes.DEFAULT_TYPE):
         if len(group.players) < 2:
             continue
 
-        now = datetime.datetime.now(TZ)
+        now = datetime.datetime.now(TIMEZONE)
         lines = [f"Date: {now.strftime('%d-%m-%Y')} (SGT)\n"]
 
         for _, p in group.players.items():
@@ -303,7 +303,7 @@ async def daily_status_update(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def check_streaks(context: ContextTypes.DEFAULT_TYPE):
-    now = datetime.datetime.now(TZ)
+    now = datetime.datetime.now(TIMEZONE)
     today = now.strftime("%d-%m-%Y")
 
     for chat_id in get_all_chat_ids():
@@ -345,9 +345,9 @@ def main():
     app.add_handler(CommandHandler("set_group_name", set_group_name_cmd))
 
     # check streak daily at EOD
-    job_queue.run_daily(check_streaks, time=datetime.time(23, 59, tzinfo=TZ))
+    job_queue.run_daily(check_streaks, time=datetime.time(23, 59, tzinfo=TIMEZONE))
     # check daily status
-    job_queue.run_daily(daily_status_update, time=datetime.time(8, 0, tzinfo=TZ))
+    job_queue.run_daily(daily_status_update, time=datetime.time(8, 0, tzinfo=TIMEZONE))
 
     print("Polling...")
     app.run_polling()

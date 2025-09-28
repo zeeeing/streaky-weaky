@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 NODE_ENV = os.getenv("NODE_ENV", "development")
-TZ = ZoneInfo(os.getenv("TZ", "Asia/Singapore"))
+TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Asia/Singapore"))
 
 # select env
 if NODE_ENV == "production":
@@ -42,11 +42,11 @@ def fetch_ac_submissions(username: str, limit: int = 20) -> ACSubmissionsRespons
 def solved_today(username: str, now: datetime.datetime) -> Tuple[bool, List[str]]:
     """Check if user has at least one AC in the SGT day window."""
     day_start = int(
-        datetime.datetime(now.year, now.month, now.day, tzinfo=TZ).timestamp()
+        datetime.datetime(now.year, now.month, now.day, tzinfo=TIMEZONE).timestamp()
     )
     day_end = int(
         datetime.datetime(
-            now.year, now.month, now.day, 23, 59, 59, tzinfo=TZ
+            now.year, now.month, now.day, 23, 59, 59, tzinfo=TIMEZONE
         ).timestamp()
     )
 
