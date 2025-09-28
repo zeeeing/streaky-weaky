@@ -130,7 +130,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>Group chat usage:</b>\n"
         "1. Add me to a group.\n"
         "2. Everyone runs <code>/link &lt;leetcode_username&gt;</code> to link their leetcode username to their telegram account.\n"
-        "3. Run <code>/status</code> or <code>/check_now</code> to keep update to date with the team's progress daily!\n"
+        "3. Run <code>/status</code> or <code>/check_now</code> to keep up to date with the team's progress daily!\n"
         "4. Optionally set a custom group name with <code>/set_group_name &lt;your name&gt;</code>.\n\n"
         "• To prevent a streak from dying, every linked user is required to submit at least 1 accepted submission daily.\n"
         "• Daily tally happens at 23:59 SGT or when all members have completed the requirements for the day, whichever comes first."
