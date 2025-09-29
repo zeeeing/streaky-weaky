@@ -81,17 +81,14 @@ def perform_streak_check(
         detailed_titles = ", ".join(titles) if titles else ""
         lines.append(f"• {p.lc_user}: {status_icon} {detailed_titles}")
 
-    if all_completed and group.today_checked != today:
-        prev_streak = group.streak
-        group.streak += 1
-        group.today_checked = today
-        lines.append(f"\nStreak updated: {prev_streak} → {group.streak} 🔥")
-    elif group.today_checked == today:
-        lines.append("\nStreak already updated for today. Nice work! 🎉")
-    else:
-        lines.append(
-            "\nNot all players have completed their daily LeetCode question. Keep going! 💪"
-        )
+    if all_completed:
+        if group.today_checked != today:
+            prev_streak = group.streak
+            group.streak += 1
+            group.today_checked = today
+            lines.append(f"\nStreak updated: {prev_streak} → {group.streak} 🔥")
+        else:
+            lines.append("\nStreak already updated for today. Nice work! 🎉")
 
     return all_completed, lines
 
@@ -203,8 +200,13 @@ async def check_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.datetime.now(TIMEZONE)
     today = now.strftime("%d-%m-%Y")
 
-    _, lines = perform_streak_check(group, now, today)
+    all_completed, lines = perform_streak_check(group, now, today)
     set_state(chat_id, group.streak, group.today_checked)
+
+    if not all_completed:
+        lines.append(
+            "\nNot all players have completed their daily LeetCode question yet. Keep going! 💪"
+        )
 
     await update.message.reply_text("\n".join(lines))
 
@@ -316,9 +318,11 @@ async def check_streaks(context: ContextTypes.DEFAULT_TYPE):
 
         # break streak
         if not all_completed:
-            lines.append(
-                "\nNot all players have completed today's challenge. The streak has been resetted to 0. Try again tomorrow! 😔"
-            )
+            reset_line = "\nNot all players have completed today's challenge.\nThe streak has been resetted to 0. 😔\nTry again tomorrow!"
+            if lines and "Keep going!" in lines[-1]:
+                lines[-1] = reset_line
+            else:
+                lines.append(reset_line)
             group.streak = 0
 
         set_state(chat_id, group.streak, group.today_checked)
@@ -345,7 +349,7 @@ def main():
     app.add_handler(CommandHandler("set_group_name", set_group_name_cmd))
 
     # check streak daily at EOD
-    job_queue.run_daily(check_streaks, time=datetime.time(23, 59, tzinfo=TIMEZONE))
+    job_queue.run_daily(check_streaks, time=datetime.time(10, 30, tzinfo=TIMEZONE))
     # check daily status
     job_queue.run_daily(daily_status_update, time=datetime.time(8, 0, tzinfo=TIMEZONE))
 

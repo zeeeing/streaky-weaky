@@ -2,11 +2,15 @@ import os
 import sqlite3
 from typing import Tuple, List, Dict, Optional
 
-DB_PATH = os.getenv("/", "streak_dev.db")
+
+def _db_path() -> str:
+    """Return DB file path based on NODE_ENV."""
+    node_env = os.getenv("NODE_ENV", "development").lower()
+    return "streak_dev.db" if node_env == "development" else "streak_prod.db"
 
 
 def _connect():
-    return sqlite3.connect(DB_PATH)
+    return sqlite3.connect(_db_path())
 
 
 def init_db() -> None:
