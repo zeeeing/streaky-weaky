@@ -4,27 +4,19 @@ load_dotenv()
 
 import os, logging
 from zoneinfo import ZoneInfo
+from datetime import datetime, time, timedelta
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from telegram.helpers import escape_markdown
 
-from classes.player import Player
 from utils import send_status_message
+import db
 
 # constants
 LOGGER = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Asia/Singapore"))
-
-# --- MOCK DATA FOR TESTING ---
-# Format: { tele_id (int): Player }
-PLAYERS = {}
-
-# Add dummy player for testing
-dummy_p1 = Player(12345678, "tele_username_1", "lc_username_1")
-PLAYERS[12345678] = dummy_p1
-# --------------------------------
 
 
 # 1. start command
@@ -56,13 +48,21 @@ async def link_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # retrieve telegram username
     tele_username = update.effective_user.username or ""
 
-    # save data to in-memory storage
-    if user_id not in PLAYERS:
-        PLAYERS[user_id] = Player(user_id, tele_username, lc_username)
+    # check if player exists in DB
+    existing_player = db.get_player(user_id)
+
+    if not existing_player:
+        # add new player
+        success = db.add_player(user_id, tele_username, lc_username)
+        if not success:
+            await update.message.reply_text(
+                "Error linking account. Please try again later."
+            )
+            return
     else:
-        # update usernames if already exist (in case they changed it)
-        PLAYERS[user_id].set_tele_username(tele_username)
-        PLAYERS[user_id].set_lc_username(lc_username)
+        # update usernames if already exist
+        db.update_player_tele_username(user_id, tele_username)
+        db.update_player_lc_username(user_id, lc_username)
 
     # build response message
     escaped_tele_username = escape_markdown(
@@ -79,13 +79,48 @@ async def link_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 3. status command
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_status_message(update, context, PLAYERS)
+    players = db.get_all_players()
+    await send_status_message(update, context, players)
 
 
 # 4. refresh button callback
 async def refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer("Refreshing data. Please wait...")
-    await send_status_message(update, context, PLAYERS, is_refresh=True)
+    players = db.get_all_players()
+    await send_status_message(update, context, players, is_refresh=True)
+
+
+# 5. daily reset job
+async def daily_reset_job(context: ContextTypes.DEFAULT_TYPE):
+    LOGGER.info("Running daily reset job...")
+    players = db.get_all_players()
+    now = datetime.now(TIMEZONE)
+    yesterday_date = (now - timedelta(days=1)).date()
+
+    for p in players.values():
+        last_upgrade = p.get_last_streak_upgrade()
+        reset_needed = False
+
+        if last_upgrade:
+            try:
+                local_last_upgrade = last_upgrade.astimezone(TIMEZONE).date()
+                # check if last upgrade date is before yesterday
+                # (meaning they didn't solve any problem yesterday)
+                if local_last_upgrade < yesterday_date:
+                    reset_needed = True
+            except Exception:
+                # if timestamp parsing fails, fallback to ignore to avoid accidental resets
+                pass
+        else:
+            # if no last upgrade recorded but streak > 0, they definitely haven't updated recently
+            if p.get_streak() > 0:
+                reset_needed = True
+
+        if reset_needed and p.get_streak() > 0:
+            LOGGER.info(
+                f"Resetting streak for {p.get_tele_username()} (ID: {p.get_tele_id()})"
+            )
+            db.reset_streak(p.get_tele_id())
 
 
 def main():
@@ -100,6 +135,10 @@ def main():
     app.add_handler(CommandHandler("link", link_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CallbackQueryHandler(refresh_callback, pattern="^refresh_status$"))
+
+    # Schedule daily job at 00:00 SGT
+    job_queue = app.job_queue
+    job_queue.run_daily(daily_reset_job, time=time(0, 0, tzinfo=TIMEZONE))
 
     print("Polling...")
     app.run_polling()

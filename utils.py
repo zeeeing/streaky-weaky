@@ -9,6 +9,8 @@ from telegram.helpers import (
     escape_markdown,
 )  # to allow special characters from being processed as markdown
 
+import db
+
 from api import fetch_ac_submissions, get_question_details
 from api import LeetCodeQuestion
 
@@ -96,14 +98,44 @@ async def send_status_message(
             question_slugs = ["two-sum", "add-two-numbers"]
         # --------------------------------
 
+        # update streak logic
+        if is_solved:
+            last_upgrade = player.get_last_streak_upgrade()
+            should_upgrade = False
+
+            if last_upgrade is None:
+                should_upgrade = True
+            else:
+                try:
+                    # convert to same timezone to compare dates
+                    local_last_upgrade = last_upgrade.astimezone(TIMEZONE)
+                    if local_last_upgrade.date() < now.date():
+                        should_upgrade = True
+                except Exception:
+                    # fallback if timezone conversion fails
+                    should_upgrade = True
+
+            if should_upgrade:
+                new_streak = player.increment_streak()
+                success = db.update_streak(player.get_tele_id(), new_streak, now)
+                if success:
+                    player.set_streak(new_streak)
+                    player.set_last_streak_upgrade(now)
+
         # retrieve tele username; fallback to tele id
         tele_username = player.get_tele_username()
 
         # build usernames
         escaped_lc_username = escape_markdown(lc_username)
         escaped_tele_username = escape_markdown(tele_username)
+        streak_count = player.get_streak()
         status_emoji = "✅" if is_solved else "❌"
-        lines.append(f"{status_emoji} @{escaped_tele_username} ({escaped_lc_username})")
+
+        # build streak line
+        streak_emoji = "🔥" if streak_count > 0 else "😐"
+        lines.append(
+            f"{status_emoji} @{escaped_tele_username} ({escaped_lc_username}) {streak_emoji} {streak_count} {'day' if streak_count == 1 else 'days'}"
+        )
 
         # build question links if solved
         if is_solved and question_slugs:
