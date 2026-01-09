@@ -1,147 +1,103 @@
 # Streaky Weaky
 
-A Telegram bot that helps groups keep their daily LeetCode practice streak alive. It tracks whether every linked member submitted at least one accepted solution for the day, posts daily status updates, and automatically updates or resets the group streak at end-of-day (SGT).
+A Telegram bot that helps you keep your daily LeetCode practice streak alive. It tracks linked members' daily submissions, posts status updates, and automatically resets streaks if a day is missed.
 
 ## Features
 
-- Group-first streak tracking with simple linking per member
-- Daily reminders and end-of-day streak checks (SGT)
-- Manual status and check commands
-- Leaderboard across all groups using the bot
-- SQLite persistence with in-memory caching for performance
-- Handy problem links and difficulty icons (when API data is available)
+- **Individual Streak Tracking**: Tracks streaks for every linked user.
+- **Daily Resets**: Automatically checks streaks at the end of the day (00:00 SGT) and resets them if no submission is found.
+- **Live Status**: Check who has solved a problem today with `/status` and refresh the data instantly.
+- **Supabase Integration**: fast and persistent storage using Supabase (PostgreSQL).
+- **Handy Links**: Provides links to solved problems and difficulty indicators.
 
 ## Tech Stack
 
 - Python, `python-telegram-bot`
-- SQLite for storage
+- Supabase (PostgreSQL)
 
 ## Commands
 
-- `/start` — Quick help and usage overview
-- `/link <leetcode_username>` — Link your Telegram user to a LeetCode username
-- `/status` — Show today’s completion status for all linked members and current streak
-- `/check_now` — Manually check everyone’s status and update the streak if complete
-- `/leaderboard` — Show group streaks across all chats using the bot
-- `/set_group_name <name>` — Set a custom name used on the leaderboard
-
-Notes
-
-- The bot requires at least two linked players in a chat to track a streak.
-- Daily status broadcast: 08:00 SGT.
-- Daily streak check/reset: 23:59 SGT.
+- `/start` — Quick help and usage overview.
+- `/link <leetcode_username>` — Link your Telegram user to a LeetCode username.
+- `/status` — Show today’s completion status for all linked members. Includes a "Refresh" button to update data.
 
 ## Quick Start
 
-### Using the Deployed Bot (User Guide)
+### Using the Bot
 
-1. Open Telegram and search for the bot: `@StreakyWeakyBot`.
-2. Tap the bot and press Start to view commands.
-3. Add the bot to your group chat.
-4. In the group, each member links their LeetCode account:
-   - `/link <leetcode_username>`
-5. Check group progress any time:
-   - `/status` — shows who has completed today and the current streak
-   - `/check_now` — manually re-check and update the streak if everyone is done
-6. Optional: Set a custom group name for the leaderboard:
-   - `/set_group_name <your group name>`
-7. Daily schedule (SGT):
-   - Status reminder at 08:00
-   - Streak finalized at 23:59 (resets to 0 if anyone hasn’t completed)
-
-Notes for users
-
-- Works in group chats; private chat usage isn’t supported.
-- Requires at least two linked members to track a streak.
+1. Start the bot: `/start`
+2. Link your LeetCode account:
+   ```
+   /link <leetcode_username>
+   ```
+3. Check status:
+   ```
+   /status
+   ```
+   The bot will show who has completed a problem today and their current streak.
 
 ### Local Hosting (Developer Guide)
 
-1. Prerequisites: Python 3.10+ and `pip`.
-2. Install dependencies:
+1. **Prerequisites**: Python 3.10+ and `pip`.
+2. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
-3. Create a Telegram bot via BotFather and copy the token.
-4. Create a `.env` file in the project root:
+3. **Supabase Setup**:
+   - Create a Supabase project.
+   - Create a `players` table with the following columns:
+     - `tele_id` (int8, Primary Key)
+     - `tele_username` (text)
+     - `lc_username` (text)
+     - `streak` (int8, default 0)
+     - `last_streak_upgrade` (timestamptz, nullable)
+4. **Environment Variables**:
+   Create a `.env` file in the project root:
+
    ```env
-   BOT_TOKEN=123456:ABC-your-telegram-bot-token
+   BOT_TOKEN=your-telegram-bot-token
    NODE_ENV=development
    TIMEZONE=Asia/Singapore
-   # Base URLs for your LeetCode API service
+
+   # Supabase Credentials
+   SUPABASE_URL=your-supabase-project-url
+   SUPABASE_KEY=your-supabase-anon-key
+
+   # Base URLs for LeetCode API
    API_BASE_DEV=https://your-api.dev.example.com
    API_BASE_PROD=https://your-api.prod.example.com
    ```
-5. Start the bot:
+
+5. **Start the bot**:
    ```bash
    python bot.py
    ```
-6. In Telegram, add the bot to a group and try:
-   - `/link <leetcode_username>` for each member
-   - `/status` to see progress
 
 ## How It Works
 
-- Persistence: The bot uses a local SQLite database (`streak_dev.db` in the repo root) and initializes tables on startup.
-- In-memory cache: Group state is cached in `bot_data` and kept in sync with the DB.
-- Scheduling: The job queue posts a daily status message (08:00 SGT) and finalizes the streak at end-of-day (23:59 SGT). If any member hasn’t solved at least one problem by then, the streak resets to 0.
-- Timezone: The bot uses the `TIMEZONE` environment variable (IANA name) and defaults to `Asia/Singapore`.
+- **Persistence**: Uses Supabase to store player data and streaks.
+- **Global Tracking**: Currently, the bot tracks all linked users globally. The `/status` command will show every user registered in the database.
+- **Scheduling**:
+  - A daily job runs at **00:00 SGT** to check for missed days.
+  - If a user hasn't solved a problem by then, their streak is reset to 0.
+- **Timezone**: Configurable via `TIMEZONE` (defaults to `Asia/Singapore`).
 
-## Expected External API
+## External API
 
-The bot fetches data from a LeetCode-compatible API, selected by `NODE_ENV`:
-
-- `NODE_ENV=development` → `API_BASE_DEV`
-- `NODE_ENV=production` → `API_BASE_PROD`
-
-Endpoints used:
+The bot fetches data from a LeetCode-compatible API:
 
 - `GET {API_BASE}/{username}/acSubmission?limit=20`
-  - Response (example):
-    ```json
-    {
-      "count": 5,
-      "submission": [
-        { "timestamp": "1727193600", "titleSlug": "two-sum" },
-        { "timestamp": "1727200000", "titleSlug": "valid-anagram" }
-      ]
-    }
-    ```
 - `GET {API_BASE}/select?titleSlug=<slug>`
-  - Response (example):
-    ```json
-    {
-      "questionTitle": "Two Sum",
-      "difficulty": "Easy",
-      "link": "https://leetcode.com/problems/two-sum/"
-    }
-    ```
-
-If the details endpoint fails, the bot falls back to a generic problem link using the slug.
-
-## Data Model (SQLite)
-
-- `streaks(chat_id PRIMARY KEY, streak INTEGER, today_checked TEXT)`
-- `players(chat_id, tele_id, lc_user, PRIMARY KEY(chat_id, tele_id))`
-- `groups(chat_id PRIMARY KEY, name TEXT)`
-
-The database file is `streak_dev.db` by default and is created automatically.
 
 ## Development Tips
 
-- Virtualenv (recommended):
+- **Virtualenv**:
   ```bash
   python -m venv .venv && source .venv/bin/activate
   pip install -r requirements.txt
   ```
-- Logging: set by `logging.basicConfig(level=logging.INFO)` in `bot.py`.
-- Timezone: change via `TIMEZONE` (e.g., `TIMEZONE=UTC`, `TIMEZONE=America/New_York`).
-
-## Troubleshooting
-
-- No updates in group: Ensure the bot is added to the group and members have used `/link`.
-- Streak not updating: All linked members must have at least one accepted submission within the configured SGT day window.
-- Problem links show question marks: If the question details API is unavailable, the bot uses slugs and a fallback difficulty icon.
+- **Logging**: Controlled via `logging.basicConfig` in `bot.py`.
 
 ## License
 
-Add your preferred license terms here.
+MIT
