@@ -1,6 +1,6 @@
 python-telegram-bot
-"python-telegram-bot[webhooks]"
-"python-telegram-bot[job-queue]"
+python-telegram-bot[webhooks]
+python-telegram-bot[job-queue]
 python-dotenv
 requests
 supabase
