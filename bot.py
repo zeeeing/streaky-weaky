@@ -17,6 +17,7 @@ import db
 LOGGER = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Asia/Singapore"))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 
 # 1. start command
@@ -140,8 +141,16 @@ def main():
     job_queue = app.job_queue
     job_queue.run_daily(daily_reset_job, time=time(0, 0, tzinfo=TIMEZONE))
 
-    print("Polling...")
-    app.run_polling()
+    # print("Polling...")
+    # app.run_polling()
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=8443,
+        url_path=BOT_TOKEN,
+        webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}",
+        cert="cert.pem",
+        key="private.key",
+    )
 
 
 if __name__ == "__main__":
